@@ -166,6 +166,14 @@ public sealed class ExportSession(Action<StreamingLevelFilterArgs, CancellationT
         return fullPath.Replace('/', '\\');
     }
 
+    internal string ResolveOutputPathInFolder(string folder, string fileName, string ext, string? nameSuffix = null)
+    {
+        var fullPath = Path.Combine(BaseDirectory.FullName, folder, fileName) + nameSuffix + '.' + ext.ToLower();
+        var dir = Path.GetDirectoryName(fullPath) ?? throw new InvalidOperationException($"Cannot determine directory for path: {fullPath}");
+        Directory.CreateDirectory(dir);
+        return fullPath.Replace('/', '\\');
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

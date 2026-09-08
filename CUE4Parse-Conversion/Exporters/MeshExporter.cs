@@ -1,7 +1,11 @@
-﻿using CUE4Parse_Conversion.Dto;
+﻿using System;
+using System.Collections.Generic;
+using CUE4Parse_Conversion.Dto;
 using CUE4Parse_Conversion.Formats.Meshes;
 using CUE4Parse_Conversion.Options;
 using CUE4Parse.UE4.Assets.Exports;
+using CUE4Parse.UE4.Assets.Exports.Animation;
+using CUE4Parse.UE4.Assets.Exports.Engine;
 using CUE4Parse.UE4.Assets.Exports.Material;
 
 namespace CUE4Parse_Conversion.Exporters;
@@ -14,7 +18,32 @@ public abstract class MeshExporter<T>(T mesh) : ExporterBase(mesh) where T : UOb
     {
         Log.Debug("Converting mesh to {Format} at {Quality} quality ({NaniteFormat})", Session.Options.MeshFormat, Session.Options.MeshQuality, Session.Options.NaniteMeshFormat);
 
+        ApplyGroupedOutputFolder();
         return BuildFiles(mesh, GetMeshFormat(Session.Options.MeshFormat));
+    }
+
+    /// <summary>
+    /// Computes the grouped output folder (ByModel / BySkeleton) for this mesh and stores it in
+    /// <see cref="ExporterBase.OutputFolderOverride"/> so materials and textures follow the mesh.
+    /// </summary>
+    private void ApplyGroupedOutputFolder()
+    {
+        var mode = Session.Options.ExportFolderMode;
+        if (mode == EExportFolderMode.None) return;
+
+        var modelName = GroupedExportHelper.SanitizeFolderName(ObjectName);
+        if (mode == EExportFolderMode.ByModel)
+        {
+            OutputFolderOverride = modelName;
+        }
+        else if (mesh is USkinnedAsset skinned && skinned.Skeleton.TryLoad<USkeleton>(out var skeleton))
+        {
+            OutputFolderOverride = $"{GroupedExportHelper.HaveSkeletonRoot}/{GroupedExportHelper.GetSkeletonFolderName(skeleton)}/{modelName}";
+        }
+        else
+        {
+            OutputFolderOverride = $"{GroupedExportHelper.NoSkeletonRoot}/{modelName}";
+        }
     }
 
     protected Dictionary<string, string>? EnqueueMaterials(params MeshMaterialDto[] materials)
@@ -30,7 +59,11 @@ public abstract class MeshExporter<T>(T mesh) : ExporterBase(mesh) where T : UOb
         {
             if (slot.Material?.TryLoad<UMaterialInterface>(out var material) == true)
             {
-                Session.Add(material);
+                var materialExporter = new MaterialExporter(material)
+                {
+                    OutputFolderOverride = OutputFolderOverride
+                };
+                Session.Add(materialExporter);
                 if (paths != null)
                 {
                     paths[slot.SlotName] = Resolve(material, "usda");

@@ -30,6 +30,12 @@ public abstract class ExporterBase : IExporter
     internal ExportSession? _session = null;
     protected ExportSession Session => _session ?? throw new InvalidOperationException("Exporter must be added to an ExportSession before use");
 
+    /// <summary>
+    /// When set, all files produced by this exporter are written into this folder (relative to the session's base
+    /// directory) instead of following the exporter's own package path. Used by grouped export modes (ByModel / BySkeleton).
+    /// </summary>
+    public string? OutputFolderOverride { get; set; }
+
     protected internal ILogger Log { get; }
 
     private ExporterBase(string packagePath, string objectName, string className)
@@ -98,6 +104,12 @@ public abstract class ExporterBase : IExporter
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     protected virtual (string, string) ResolveOutputPath(ExportFile file)
     {
+        if (OutputFolderOverride is { } folder)
+        {
+            var leaf = SavePath.SubstringAfterLast('/');
+            return ($"{ObjectName}{file.NameSuffix}.{file.Extension}", Session.ResolveOutputPathInFolder(folder, leaf, file.Extension, file.NameSuffix));
+        }
+
         return ($"{ObjectName}{file.NameSuffix}.{file.Extension}", Session.ResolveOutputPath(SavePath, file.Extension, file.NameSuffix));
     }
 

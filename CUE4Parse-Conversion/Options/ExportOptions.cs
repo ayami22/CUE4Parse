@@ -17,7 +17,11 @@ public class ExportOptions(
     bool exportMaterials = true,
     bool exportMorphTargets = true,
     ESocketFormat socketFormat = ESocketFormat.Bone,
-    EFileCompressionFormat compressionFormat = EFileCompressionFormat.None)
+    EFileCompressionFormat compressionFormat = EFileCompressionFormat.None,
+    EExportFolderMode exportFolderMode = EExportFolderMode.None,
+    bool exportAnimations = false,
+    EAnimationExportMode animationExportMode = EAnimationExportMode.ThroughMesh,
+    bool filterAnimMontage = false)
 {
     public readonly EMeshFormat MeshFormat = meshFormat;
     public readonly ENaniteMeshFormat NaniteMeshFormat = naniteMeshFormat;
@@ -36,4 +40,10 @@ public class ExportOptions(
     public readonly ESocketFormat SocketFormat = socketFormat;
 
     public readonly EFileCompressionFormat CompressionFormat = meshFormat == EMeshFormat.UEFormat ? compressionFormat : EFileCompressionFormat.None;
+
+    // Grouped export: models/animations (and their materials/textures) are organized into per-model or per-skeleton folders
+    public readonly EExportFolderMode ExportFolderMode = exportFolderMode;
+    public readonly bool ExportAnimations = exportAnimations;
+    public readonly EAnimationExportMode AnimationExportMode = animationExportMode;
+    public readonly bool FilterAnimMontage = filterAnimMontage;
 }
