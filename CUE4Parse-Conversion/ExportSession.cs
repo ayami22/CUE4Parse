@@ -156,6 +156,7 @@ public sealed class ExportSession(Action<StreamingLevelFilterArgs, CancellationT
             _baseDirectory = new DirectoryInfo(baseDirectory);
             _options = options;
             _cancellationToken = ct;
+            using var memoryMonitor = ExportMemoryPressureMonitor.Start();
             _streamReport = result =>
             {
                 completed++;
@@ -226,6 +227,7 @@ public sealed class ExportSession(Action<StreamingLevelFilterArgs, CancellationT
         var results = new ConcurrentQueue<ExportResult>();
         try
         {
+            using var memoryMonitor = ExportMemoryPressureMonitor.Start();
             var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism, CancellationToken = ct };
             var current = new List<IExporter>();
             while (true)
