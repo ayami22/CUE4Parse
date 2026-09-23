@@ -74,6 +74,47 @@ public abstract class MeshExporter<T>(T mesh) : ExporterBase(mesh) where T : UOb
         return paths;
     }
 
+    protected IReadOnlyList<ExportFile> AddActorXMetadata(StaticMeshDto dto, IReadOnlyList<ExportFile> files)
+    {
+        if (Session.Options.MeshFormat != EMeshFormat.ActorX) return files;
+        var meshPaths = files.Select(file => ResolveOutputPath(file).Item2).ToArray();
+        var materialPaths = dto.Materials.Select(ResolveMaterialExportPath).ToArray();
+        var metadata = ActorXMetadataFormat.BuildStaticMesh(ObjectPath, dto, meshPaths, materialPaths);
+        return [.. files, metadata];
+    }
+
+    protected IReadOnlyList<ExportFile> AddActorXMetadata(SkeletalMeshDto dto, IReadOnlyList<ExportFile> files)
+    {
+        if (Session.Options.MeshFormat != EMeshFormat.ActorX) return files;
+        var meshPaths = files.Select(file => ResolveOutputPath(file).Item2).ToArray();
+        var materialPaths = dto.Materials.Select(ResolveMaterialExportPath).ToArray();
+        var metadata = ActorXMetadataFormat.BuildSkeletalMesh(ObjectPath, dto, meshPaths, materialPaths);
+        return [.. files, metadata];
+    }
+
+    protected IReadOnlyList<ExportFile> AddActorXMetadata(SkeletonDto dto, IReadOnlyList<ExportFile> files)
+    {
+        if (Session.Options.MeshFormat != EMeshFormat.ActorX) return files;
+        var meshPaths = files.Select(file => ResolveOutputPath(file).Item2).ToArray();
+        var metadata = ActorXMetadataFormat.BuildSkeleton(ObjectPath, dto, meshPaths);
+        return [.. files, metadata];
+    }
+
+    private string? ResolveMaterialExportPath(MeshMaterialDto slot)
+    {
+        if (!Session.Options.ExportMaterials || slot.Material?.TryLoad<UMaterialInterface>(out var material) != true || material is null)
+            return null;
+
+        var exporter = new MaterialExporter(material) { OutputFolderOverride = OutputFolderOverride };
+        if (OutputFolderOverride is { } folder)
+        {
+            var saveLeaf = exporter.SavePath[(exporter.SavePath.LastIndexOf('/') + 1)..];
+            return Session.ResolveOutputPathInFolder(folder, saveLeaf, "json");
+        }
+
+        return Session.ResolveOutputPath(exporter.SavePath, "json");
+    }
+
     private IMeshExportFormat GetMeshFormat(EMeshFormat format) => format switch
     {
         EMeshFormat.ActorX => new ActorXMeshFormat(),

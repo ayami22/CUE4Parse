@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using CUE4Parse.FileProvider;
 using CUE4Parse.UE4.Assets.Exports;
 using CUE4Parse.UE4.Assets.Exports.Actor;
@@ -48,6 +49,12 @@ public sealed class ExportSession(Action<StreamingLevelFilterArgs, CancellationT
     private CancellationToken _cancellationToken;
     internal CancellationToken CancellationToken => _cancellationToken;
     private readonly ConcurrentDictionary<IFileProvider, Lazy<AnimationExportIndex>> _animationIndexes = new();
+    private readonly SemaphoreSlim _manifestLock = new(1, 1);
+    private string? _manifestPath;
+    private static readonly JsonSerializerOptions ManifestJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
 
     public AnimationExportIndex GetAnimationIndex(IFileProvider provider, CancellationToken ct) =>
         _animationIndexes.GetOrAdd(provider, p => new Lazy<AnimationExportIndex>(() => AnimationExportIndex.Build(p, ct))).Value;
@@ -156,6 +163,7 @@ public sealed class ExportSession(Action<StreamingLevelFilterArgs, CancellationT
             _baseDirectory = new DirectoryInfo(baseDirectory);
             _options = options;
             _cancellationToken = ct;
+            await InitializeManifestAsync(ct).ConfigureAwait(false);
             using var memoryMonitor = ExportMemoryPressureMonitor.Start();
             _streamReport = result =>
             {
@@ -206,6 +214,7 @@ public sealed class ExportSession(Action<StreamingLevelFilterArgs, CancellationT
             _streamExport = null;
             _streamReport = null;
             ClearCore();
+            _manifestPath = null;
             _options = null;
             _baseDirectory = null;
             _cancellationToken = default;
@@ -227,6 +236,7 @@ public sealed class ExportSession(Action<StreamingLevelFilterArgs, CancellationT
         var results = new ConcurrentQueue<ExportResult>();
         try
         {
+            await InitializeManifestAsync(ct).ConfigureAwait(false);
             using var memoryMonitor = ExportMemoryPressureMonitor.Start();
             var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism, CancellationToken = ct };
             var current = new List<IExporter>();
@@ -252,6 +262,7 @@ public sealed class ExportSession(Action<StreamingLevelFilterArgs, CancellationT
             ClearCore();
             progress?.Report(new ExportProgress(count, count + stillQueued)); // this ensure the last progress reports the actual numbers
 
+            _manifestPath = null;
             _options = null;
             _baseDirectory = null;
             _cancellationToken = default;
@@ -290,6 +301,38 @@ public sealed class ExportSession(Action<StreamingLevelFilterArgs, CancellationT
         var dir = Path.GetDirectoryName(fullPath) ?? throw new InvalidOperationException($"Cannot determine directory for path: {fullPath}");
         Directory.CreateDirectory(dir);
         return fullPath.Replace('/', '\\');
+    }
+
+    private async Task InitializeManifestAsync(CancellationToken ct)
+    {
+        var path = Path.Combine(BaseDirectory.FullName, "manifest.jsonl");
+        Directory.CreateDirectory(BaseDirectory.FullName);
+        await File.WriteAllTextAsync(path, string.Empty, ct).ConfigureAwait(false);
+        _manifestPath = path;
+    }
+
+    internal async Task AppendManifestEntryAsync(ExporterBase exporter, string exportPath, CancellationToken ct)
+    {
+        var manifestPath = _manifestPath ?? throw new InvalidOperationException("Manifest has not been initialized.");
+        var entry = JsonSerializer.Serialize(new
+        {
+            recordType = "asset",
+            sourceObjectPath = exporter.ObjectPath,
+            className = exporter.ClassName,
+            exportPath = Path.GetFullPath(exportPath),
+            fileName = Path.GetFileName(exportPath),
+            extension = Path.GetExtension(exportPath).TrimStart('.')
+        }, ManifestJsonOptions);
+
+        await _manifestLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await File.AppendAllTextAsync(manifestPath, entry + Environment.NewLine, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _manifestLock.Release();
+        }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

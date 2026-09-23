@@ -101,6 +101,7 @@ public abstract class ExporterBase : IExporter
         Log.ForContext("FilePath", path).Information("Writing {FileName} ({ReadableFileSize:l})", fileName, file.Data.Length.GetReadableSize());
 
         await File.WriteAllBytesAsync(path, file.Data, ct).ConfigureAwait(false);
+        await Session.AppendManifestEntryAsync(this, path, ct).ConfigureAwait(false);
 
         return path;
     }

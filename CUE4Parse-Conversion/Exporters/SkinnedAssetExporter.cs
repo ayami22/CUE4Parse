@@ -37,7 +37,8 @@ public sealed class SkinnedAssetExporter(USkinnedAsset originalMesh) : MeshExpor
         }
 
         var materialPaths = EnqueueMaterials(dto.Materials);
-        return format.BuildSkeletalMesh(ObjectName, ObjectPath, Session.Options, dto, materialPaths);
+        var files = format.BuildSkeletalMesh(ObjectName, ObjectPath, Session.Options, dto, materialPaths);
+        return AddActorXMetadata(dto, files);
     }
 
     // Write the model before indexing/collecting animations, so the first output does not

@@ -1,5 +1,6 @@
 ﻿using CUE4Parse_Conversion.Animations;
 using CUE4Parse_Conversion.Formats.Animations;
+using CUE4Parse_Conversion.Formats.Meshes;
 using CUE4Parse_Conversion.Options;
 using CUE4Parse.UE4.Assets.Exports.Animation;
 
@@ -12,12 +13,18 @@ public sealed class AnimationExporter(UAnimationAsset animation) : ExporterBase(
         Log.Debug("Converting animation to {Format}", Session.Options.MeshFormat);
 
         var format = GetAnimFormat(Session.Options.MeshFormat);
-        return format switch
+        var files = format switch
         {
             // TODO: should we extend IAnimExportFormat to handle these for all writers?
             UEFormatAnimFormat when animation is UAnimStreamable streamable => new UEFormatAnimFormat().BuildAnimStreamable(ObjectName, ObjectPath, Session.Options, streamable),
             _ => format.Build(ObjectName, ObjectPath, Session.Options, animation.ConvertAnims())
         };
+
+        if (Session.Options.MeshFormat != EMeshFormat.ActorX) return files;
+        var paths = files.Select(file => ResolveOutputPath(file).Item2).ToArray();
+        var skeletonPath = animation.Skeleton?.ResolvedObject?.GetPathName();
+        var metadata = ActorXMetadataFormat.BuildAnimation(ObjectPath, skeletonPath, paths);
+        return [.. files, metadata];
     }
 
     private IAnimExportFormat GetAnimFormat(EMeshFormat format) => format switch

@@ -18,7 +18,8 @@ public sealed class StaticMeshExporter(UStaticMesh originalMesh) : MeshExporter<
         }
 
         var materialPaths = EnqueueMaterials(dto.Materials);
-        return format.BuildStaticMesh(ObjectName, ObjectPath, Session.Options, dto, materialPaths);
+        var files = format.BuildStaticMesh(ObjectName, ObjectPath, Session.Options, dto, materialPaths);
+        return AddActorXMetadata(dto, files);
     }
 }
 
@@ -33,6 +34,7 @@ public sealed class GeometryCollectionExporter(UGeometryCollection originalMesh)
         }
 
         var materialPaths = EnqueueMaterials(dto.Materials);
-        return format.BuildStaticMesh(ObjectName, ObjectPath, Session.Options, dto, materialPaths);
+        var files = format.BuildStaticMesh(ObjectName, ObjectPath, Session.Options, dto, materialPaths);
+        return AddActorXMetadata(dto, files);
     }
 }

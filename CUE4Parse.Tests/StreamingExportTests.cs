@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using CUE4Parse.UE4.Assets.Exports;
 using CUE4Parse.UE4.Assets.Exports.StaticMesh;
 using CUE4Parse.UE4.Assets.Exports.SkeletalMesh;
@@ -112,6 +113,49 @@ public sealed class StreamingExportTests : IDisposable
     }
 
     [Fact]
+    public async Task StreamingManifestIsCreatedBeforeScanningAndRecordsActualGroupedPaths()
+    {
+        var manifestPath = Path.Combine(_directory, "manifest.jsonl");
+        var session = new ExportSession();
+        var exporter = new ProbeExporter("GroupedAsset") { OutputFolderOverride = "ActualExportFolder" };
+
+        var summary = await session.RunStreamingAsync(_directory, new(), _ =>
+        {
+            Assert.True(File.Exists(manifestPath));
+            Assert.Empty(File.ReadAllText(manifestPath));
+            session.Add(exporter);
+        });
+
+        Assert.Equal(new ExportSummary(1, 0), summary);
+        var line = Assert.Single(await File.ReadAllLinesAsync(manifestPath));
+        using var json = JsonDocument.Parse(line);
+        var entry = json.RootElement;
+        var actualPath = Path.Combine(_directory, "ActualExportFolder", "GroupedAsset.bin");
+        Assert.Equal(Path.GetFullPath(actualPath), entry.GetProperty("exportPath").GetString());
+        Assert.Equal("GroupedAsset.bin", entry.GetProperty("fileName").GetString());
+        Assert.Equal("bin", entry.GetProperty("extension").GetString());
+        Assert.Equal(exporter.ObjectPath, entry.GetProperty("sourceObjectPath").GetString());
+        Assert.True(File.Exists(entry.GetProperty("exportPath").GetString()));
+    }
+
+    [Fact]
+    public async Task QueuedManifestRecordsTheWrittenFilePath()
+    {
+        var outputDirectory = Path.Combine(_directory, "queued-manifest");
+        var session = new ExportSession();
+        session.Add(new ProbeExporter("QueuedAsset"));
+
+        var results = await session.RunAsync(outputDirectory, new());
+
+        Assert.Single(results);
+        var line = Assert.Single(await File.ReadAllLinesAsync(Path.Combine(outputDirectory, "manifest.jsonl")));
+        using var json = JsonDocument.Parse(line);
+        var actualPath = Path.Combine(outputDirectory, "QueuedAsset.bin");
+        Assert.Equal(Path.GetFullPath(actualPath), json.RootElement.GetProperty("exportPath").GetString());
+        Assert.True(File.Exists(actualPath));
+    }
+
+    [Fact]
     public async Task ScannerFailureAndInvalidDirectoryDoNotLeaveSessionRunning()
     {
         var session = new ExportSession();
@@ -207,12 +251,20 @@ public sealed class StreamingExportTests : IDisposable
         var summary = await streamed.RunStreamingAsync(Path.Combine(_directory, "streamed"), options, _ =>
             streamed.Add(LoadExport<UStaticMesh>(provider, path, "SM_Fixture")));
         Assert.Equal(new ExportSummary(results.Count, 0), summary);
-        var files = Directory.GetFiles(Path.Combine(_directory, "queued"), "*", SearchOption.AllDirectories);
+        var files = Directory.GetFiles(Path.Combine(_directory, "queued"), "*", SearchOption.AllDirectories)
+            .Where(file => !Path.GetFileName(file).Equals("manifest.jsonl", StringComparison.OrdinalIgnoreCase) &&
+                           !Path.GetFileName(file).EndsWith("_actorx_metadata.json", StringComparison.OrdinalIgnoreCase));
         Assert.NotEmpty(files);
         foreach (var file in files)
         {
             var relative = Path.GetRelativePath(Path.Combine(_directory, "queued"), file);
             Assert.Equal(File.ReadAllBytes(file), File.ReadAllBytes(Path.Combine(_directory, "streamed", relative)));
+        }
+
+        if (format == EMeshFormat.ActorX)
+        {
+            AssertActorXMeshMetadata(Assert.Single(Directory.GetFiles(Path.Combine(_directory, "queued"), "SM_Fixture_actorx_metadata.json", SearchOption.AllDirectories)), "staticMesh");
+            AssertActorXMeshMetadata(Assert.Single(Directory.GetFiles(Path.Combine(_directory, "streamed"), "SM_Fixture_actorx_metadata.json", SearchOption.AllDirectories)), "staticMesh");
         }
     }
 
@@ -273,6 +325,40 @@ public sealed class StreamingExportTests : IDisposable
         Assert.Equal(baseline.Count(r => r.Success), summary.Succeeded);
         Assert.Equal(baselineFailures.Length, summary.Failed);
         Assert.Equal(baselineFailures, failures.OrderBy(x => x.ObjectPath).ToArray());
+
+        if (format == EMeshFormat.ActorX)
+        {
+            var metadataPath = Assert.Single(Directory.GetFiles(streamingDirectory, "*_actorx_metadata.json", SearchOption.AllDirectories));
+            using var metadata = JsonDocument.Parse(await File.ReadAllTextAsync(metadataPath));
+            var root = metadata.RootElement;
+            Assert.Equal("skeletalMesh", root.GetProperty("assetType").GetString());
+            Assert.NotEmpty(root.GetProperty("skeleton").GetProperty("bones").EnumerateArray());
+            AssertExportPathsExist(root.GetProperty("lods").EnumerateArray().Select(lod => lod.GetProperty("exportPath").GetString()));
+        }
+    }
+
+    private static void AssertActorXMeshMetadata(string metadataPath, string assetType)
+    {
+        using var metadata = JsonDocument.Parse(File.ReadAllText(metadataPath));
+        var root = metadata.RootElement;
+        Assert.Equal(assetType, root.GetProperty("assetType").GetString());
+        var lods = root.GetProperty("lods").EnumerateArray().ToArray();
+        Assert.NotEmpty(lods);
+        AssertExportPathsExist(lods.Select(lod => lod.GetProperty("exportPath").GetString()));
+        AssertExportPathsExist(root.GetProperty("materials").EnumerateArray()
+            .Select(material => material.GetProperty("exportPath").GetString()));
+        Assert.All(lods.SelectMany(lod => lod.GetProperty("materialSections").EnumerateArray()), section =>
+            Assert.True(section.GetProperty("materialSlotIndex").GetInt32() >= 0));
+    }
+
+    private static void AssertExportPathsExist(IEnumerable<string?> paths)
+    {
+        foreach (var path in paths.Where(path => !string.IsNullOrWhiteSpace(path)))
+        {
+            if (path is null) continue;
+            Assert.True(Path.IsPathFullyQualified(path));
+            Assert.True(File.Exists(path), $"Exported path listed in metadata does not exist: {path}");
+        }
     }
 
     private sealed class ImmediateProgress(Action<ExportProgress> report) : IProgress<ExportProgress>
