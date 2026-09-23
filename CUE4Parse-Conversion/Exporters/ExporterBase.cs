@@ -74,14 +74,9 @@ public abstract class ExporterBase : IExporter
     {
         try
         {
-            var files = BuildExportFiles(ct);
-            if (files.Count == 0)
-            {
-                throw new Exception("Format produced no files");
-            }
-
-            var tasks = files.Select(file => WriteExportFileAsync(file, ct));
-            var paths = await Task.WhenAll(tasks).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            var paths = await BuildAndWriteAsync(ct).ConfigureAwait(false);
+            AfterExport(ct);
             return new ExportResult(true, ObjectPath, paths);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -89,6 +84,15 @@ public abstract class ExporterBase : IExporter
             Log.Error(ex, "Failed to export");
             return ExportResult.Failure(ObjectPath, ex);
         }
+    }
+
+    protected virtual void AfterExport(CancellationToken ct) { }
+
+    private async Task<string[]> BuildAndWriteAsync(CancellationToken ct)
+    {
+        var files = BuildExportFiles(ct);
+        if (files.Count == 0) throw new Exception("Format produced no files");
+        return await Task.WhenAll(files.Select(file => WriteExportFileAsync(file, ct))).ConfigureAwait(false);
     }
 
     private async Task<string> WriteExportFileAsync(ExportFile file, CancellationToken ct = default)
